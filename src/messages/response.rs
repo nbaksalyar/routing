@@ -175,6 +175,30 @@ pub enum Response {
 }
 
 impl Response {
+    /// Returns a message ID for the response
+    pub fn msg_id(&self) -> &MsgId {
+        match *self {
+            Response::GetAccountInfo { ref msg_id, .. } => msg_id,
+            Response::PutIData { ref msg_id, .. } => msg_id,
+            Response::GetIData { ref msg_id, .. } => msg_id,
+            Response::PutMData { ref msg_id, .. } => msg_id,
+            Response::GetMDataVersion { ref msg_id, .. } => msg_id,
+            Response::ListMDataEntries { ref msg_id, .. } => msg_id,
+            Response::ListMDataKeys { ref msg_id, .. } => msg_id,
+            Response::ListMDataValues { ref msg_id, .. } => msg_id,
+            Response::GetMDataValue { ref msg_id, .. } => msg_id,
+            Response::MutateMDataEntries { ref msg_id, .. } => msg_id,
+            Response::ListMDataPermissions { ref msg_id, .. } => msg_id,
+            Response::ListMDataUserPermissions { ref msg_id, .. } => msg_id,
+            Response::SetMDataUserPermissions { ref msg_id, .. } => msg_id,
+            Response::DelMDataUserPermissions { ref msg_id, .. } => msg_id,
+            Response::ChangeMDataOwner { ref msg_id, .. } => msg_id,
+            Response::ListAuthKeysAndVersion { ref msg_id, .. } => msg_id,
+            Response::InsAuthKey { ref msg_id, .. } => msg_id,
+            Response::DelAuthKey { ref msg_id, .. } => msg_id,
+        }
+    }
+
     /// The priority Crust should send this message with.
     pub fn priority(&self) -> u8 {
         /*
