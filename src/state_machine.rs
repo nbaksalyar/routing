@@ -18,6 +18,7 @@
 use {CrustEvent, CrustEventSender, Service};
 use BootstrapConfig;
 use action::Action;
+use config_handler::Config;
 use id::{FullId, PublicId};
 use maidsafe_utilities::event_sender::MaidSafeEventCategory;
 #[cfg(feature = "use-mock-crust")]
@@ -227,10 +228,11 @@ impl StateMachine {
     // Construct a new StateMachine by passing a function returning the initial state.
     pub fn new<F>(init_state: F,
                   pub_id: PublicId,
-                  config: Option<BootstrapConfig>,
+                  bootstrap_config: Option<BootstrapConfig>,
+                  routing_config: Config,
                   outbox: &mut EventBox)
                   -> (RoutingActionSender, Self)
-        where F: FnOnce(RoutingActionSender, Service, Timer, &mut EventBox) -> State
+        where F: FnOnce(RoutingActionSender, Service, Timer, &mut EventBox, Config) -> State
     {
         let (category_tx, category_rx) = mpsc::channel();
         let (crust_tx, crust_rx) = mpsc::channel();
@@ -244,7 +246,7 @@ impl StateMachine {
                                                  MaidSafeEventCategory::Crust,
                                                  category_tx.clone());
 
-        let res = match config {
+        let res = match bootstrap_config {
             #[cfg(feature = "use-mock-crust")]
             Some(c) => Service::with_config(mock_crust::take_current(), crust_sender, c, pub_id),
             #[cfg(not(feature = "use-mock-crust"))]
@@ -261,7 +263,11 @@ impl StateMachine {
 
         let timer = Timer::new(action_sender.clone());
 
-        let state = init_state(action_sender.clone(), crust_service, timer, outbox);
+        let state = init_state(action_sender.clone(),
+                               crust_service,
+                               timer,
+                               outbox,
+                               routing_config.clone());
         let is_running = match state {
             State::Terminated => false,
             _ => true,

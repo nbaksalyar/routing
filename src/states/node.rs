@@ -21,6 +21,7 @@ use {CrustEvent, PrivConnectionInfo, PubConnectionInfo, QUORUM_DENOMINATOR, QUOR
 use ack_manager::{Ack, AckManager};
 use action::Action;
 use cache::Cache;
+use config_handler::Config;
 use crust::{ConnectionInfoResult, CrustError, CrustUser};
 use cumulative_own_section_merge::CumulativeOwnSectionMerge;
 use error::{BootstrapResponseError, InterfaceError, RoutingError};
@@ -136,6 +137,10 @@ pub struct Node {
     dropped_clients: LruCache<PublicId, ()>,
     /// Proxy client traffic handled
     proxy_load_amount: u64,
+    /// Routing configuration
+    routing_config: Config,
+    /// Turns off rate limiting if `true`
+    disable_rate_limiter: bool,
 }
 
 impl Node {
@@ -144,7 +149,8 @@ impl Node {
                  crust_service: Service,
                  full_id: FullId,
                  min_section_size: usize,
-                 timer: Timer)
+                 timer: Timer,
+                 routing_config: Config)
                  -> Option<Self> {
         // old_id is useless for first node
         let old_id = FullId::new();
@@ -157,7 +163,8 @@ impl Node {
                                  min_section_size,
                                  Stats::new(),
                                  timer,
-                                 0);
+                                 0,
+                                 routing_config);
         if let Err(error) = node.crust_service.start_listening_tcp() {
             error!("{:?} Failed to start listening: {:?}", node, error);
             None
@@ -178,7 +185,8 @@ impl Node {
                               min_section_size: usize,
                               proxy_pub_id: PublicId,
                               stats: Stats,
-                              timer: Timer)
+                              timer: Timer,
+                              routing_config: Config)
                               -> Self {
         let mut node = Self::new(action_sender,
                                  cache,
@@ -189,7 +197,8 @@ impl Node {
                                  min_section_size,
                                  stats,
                                  timer,
-                                 our_section.1.len());
+                                 our_section.1.len(),
+                                 routing_config);
         node.joining_prefix = our_section.0;
         node.peer_mgr
             .insert_peer(Peer::new(proxy_pub_id,
@@ -210,12 +219,18 @@ impl Node {
            min_section_size: usize,
            stats: Stats,
            timer: Timer,
-           challenger_count: usize)
+           challenger_count: usize,
+           routing_config: Config)
            -> Self {
         let public_id = *new_full_id.public_id();
         let tick_period = Duration::from_secs(TICK_TIMEOUT_SECS);
         let tick_timer_token = timer.schedule(tick_period);
         let user_msg_cache_duration = Duration::from_secs(USER_MSG_CACHE_EXPIRY_DURATION_SECS);
+        let disable_rate_limiter =
+            routing_config
+                .dev
+                .clone()
+                .map_or(false, |dev_cfg| dev_cfg.disable_client_rate_limiter);
         Node {
             ack_mgr: AckManager::new(),
             cacheable_user_msg_cache:
@@ -252,6 +267,8 @@ impl Node {
             dropped_clients:
                 LruCache::with_expiry_duration(Duration::from_secs(DROPPED_CLIENT_TIMEOUT_SECS)),
             proxy_load_amount: 0,
+            routing_config: routing_config,
+            disable_rate_limiter: disable_rate_limiter,
         }
     }
 
@@ -1425,13 +1442,17 @@ impl Node {
               }) if *part_count <= MAX_PARTS && part_index < part_count &&
                   *priority >= DEFAULT_PRIORITY &&
                   payload.len() <= MAX_PART_LEN => {
-                self.clients_rate_limiter
-                    .add_message(self.peer_mgr.client_num() as u64,
-                                 ip,
-                                 hash,
-                                 *part_count,
-                                 *part_index,
-                                 payload)
+                if !self.disable_rate_limiter {
+                    self.clients_rate_limiter
+                        .add_message(self.peer_mgr.client_num() as u64,
+                                     ip,
+                                     hash,
+                                     *part_count,
+                                     *part_index,
+                                     payload)
+                } else {
+                    Ok(0)
+                }
             }
             _ => {
                 debug!("{:?} Illegitimate client message {:?}. Refusing to relay.",
@@ -1522,7 +1543,15 @@ impl Node {
             return Ok(());
         }
 
-        if (peer_kind == CrustUser::Client || !self.is_first_node) &&
+        let require_section_min_size =
+            self.routing_config
+                .dev
+                .clone()
+                .map_or(true, |dev_config| {
+                    dev_config.disable_min_section_size_for_client_bootstrap == false
+                });
+
+        if require_section_min_size && (peer_kind == CrustUser::Client || !self.is_first_node) &&
            self.routing_table().len() < self.min_section_size() - 1 {
             debug!("{:?} Client {:?} rejected: Routing table has {} entries. {} required.",
                    self,
@@ -1572,7 +1601,14 @@ impl Node {
             return;
         }
 
-        let (difficulty, target_size) = if self.crust_service.is_peer_hard_coded(new_pub_id) ||
+        let disable_resource_proof =
+            self.routing_config
+                .dev
+                .clone()
+                .map_or(false, |dev_config| dev_config.disable_resource_proof);
+
+        let (difficulty, target_size) = if disable_resource_proof ||
+                                           self.crust_service.is_peer_hard_coded(new_pub_id) ||
                                            self.peer_mgr.is_joining_node(new_pub_id) {
             (0, 1)
         } else {

@@ -19,6 +19,9 @@ use BootstrapConfig;
 use action::Action;
 use cache::NullCache;
 #[cfg(not(feature = "use-mock-crust"))]
+use config_handler;
+use config_handler::Config;
+#[cfg(not(feature = "use-mock-crust"))]
 use crust::read_config_file;
 use data::{EntryAction, ImmutableData, MutableData, PermissionSet, User};
 use error::{InterfaceError, RoutingError};
@@ -67,24 +70,27 @@ pub struct Client {
 impl Client {
     fn make_state_machine(keys: Option<FullId>,
                           outbox: &mut EventBox,
-                          config: Option<BootstrapConfig>)
+                          bootstrap_config: Option<BootstrapConfig>,
+                          routing_config: Config)
                           -> (RoutingActionSender, StateMachine) {
         let full_id = keys.unwrap_or_else(FullId::new);
         let pub_id = *full_id.public_id();
         let min_section_size = utils::min_section_size();
 
-        StateMachine::new(move |action_sender, crust_service, timer, _outbox2| {
+        StateMachine::new(move |action_sender, crust_service, timer, _outbox2, routing_config| {
             Bootstrapping::new(action_sender,
                                Box::new(NullCache),
                                BootstrappingTargetState::Client,
                                crust_service,
                                full_id,
                                min_section_size,
-                               timer)
+                               timer,
+                               routing_config)
                     .map_or(State::Terminated, State::Bootstrapping)
         },
                           pub_id,
-                          config,
+                          bootstrap_config,
+                          routing_config,
                           outbox)
     }
 
@@ -424,7 +430,16 @@ impl Client {
 
 #[cfg(not(feature = "use-mock-crust"))]
 impl Client {
-    /// Create a new `Client`.
+    /// Create a new `Client` with a default routing config.
+    pub fn new(event_sender: Sender<Event>,
+               keys: Option<FullId>,
+               bootstrap_config: Option<BootstrapConfig>)
+               -> Result<Client, RoutingError> {
+        let routing_config = config_handler::read_config_file()?;
+        Self::new_with_config(event_sender, keys, bootstrap_config, routing_config)
+    }
+
+    /// Create a new `Client` with a provided routing config.
     ///
     /// It will automatically connect to the network, but not attempt to achieve full routing node
     /// status. The name of the client will be the name of the `PublicId` of the `keys` and must
@@ -434,10 +449,11 @@ impl Client {
     /// Keys will be exchanged with the `ClientAuthority` so that communication with the network is
     /// cryptographically secure and uses section consensus. The restriction for the client name
     /// exists to ensure that the client cannot choose its `ClientAuthority`.
-    pub fn new(event_sender: Sender<Event>,
-               keys: Option<FullId>,
-               config: Option<BootstrapConfig>)
-               -> Result<Client, RoutingError> {
+    pub fn new_with_config(event_sender: Sender<Event>,
+                           keys: Option<FullId>,
+                           bootstrap_config: Option<BootstrapConfig>,
+                           routing_config: Config)
+                           -> Result<Client, RoutingError> {
         rust_sodium::init(); // enable shared global (i.e. safe to multithread now)
 
         let (tx, rx) = channel();
@@ -447,7 +463,7 @@ impl Client {
             // start the handler for routing with a restriction to become a full node
             let mut event_buffer = EventBuf::new();
             let (action_sender, mut machine) =
-                Self::make_state_machine(keys, &mut event_buffer, config);
+                Self::make_state_machine(keys, &mut event_buffer, bootstrap_config, routing_config);
 
             for ev in event_buffer.take_all() {
                 unwrap!(event_sender.send(ev));
@@ -515,7 +531,8 @@ impl Client {
                config: Option<BootstrapConfig>)
                -> Result<Client, RoutingError> {
         let mut event_buffer = EventBuf::new();
-        let (_, machine) = Self::make_state_machine(keys, &mut event_buffer, config);
+        let (_, machine) =
+            Self::make_state_machine(keys, &mut event_buffer, config, Config::default());
 
         let (tx, rx) = channel();
 

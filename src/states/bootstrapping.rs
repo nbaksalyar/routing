@@ -20,6 +20,7 @@ use super::common::Base;
 use {CrustEvent, Service};
 use action::Action;
 use cache::Cache;
+use config_handler::Config;
 use crust::CrustUser;
 use error::RoutingError;
 use event::Event;
@@ -66,6 +67,7 @@ pub struct Bootstrapping {
     min_section_size: usize,
     stats: Stats,
     timer: Timer,
+    routing_config: Config,
 }
 
 impl Bootstrapping {
@@ -75,7 +77,8 @@ impl Bootstrapping {
                mut crust_service: Service,
                full_id: FullId,
                min_section_size: usize,
-               timer: Timer)
+               timer: Timer,
+               routing_config: Config)
                -> Option<Self> {
         match target_state {
             TargetState::Client => {
@@ -100,6 +103,7 @@ impl Bootstrapping {
                  min_section_size: min_section_size,
                  stats: Stats::new(),
                  timer: timer,
+                 routing_config: routing_config,
              })
     }
 
@@ -196,7 +200,8 @@ impl Bootstrapping {
                                                     self.min_section_size,
                                                     proxy_public_id,
                                                     self.stats,
-                                                    self.timer) {
+                                                    self.timer,
+                                                    self.routing_config) {
                     State::JoiningNode(joining_node)
                 } else {
                     outbox.send_event(Event::RestartRequired);
@@ -217,7 +222,8 @@ impl Bootstrapping {
                                                      self.min_section_size,
                                                      proxy_public_id,
                                                      self.stats,
-                                                     self.timer))
+                                                     self.timer,
+                                                     self.routing_config))
             }
         }
     }
@@ -382,6 +388,7 @@ mod tests {
     use super::*;
     use CrustEvent;
     use cache::NullCache;
+    use config_handler::Config as RoutingConfig;
     use id::FullId;
     use maidsafe_utilities::event_sender::{MaidSafeEventCategory, MaidSafeObserver};
     use mock_crust::{self, Network};
@@ -422,18 +429,24 @@ mod tests {
         let mut state_machine = mock_crust::make_current(&handle1, || {
             let full_id = FullId::new();
             let pub_id = *full_id.public_id();
-            StateMachine::new(move |action_sender, crust_service, timer, _outbox2| {
+            StateMachine::new(move |action_sender,
+                                    crust_service,
+                                    timer,
+                                    _outbox2,
+                                    routing_config| {
                 Bootstrapping::new(action_sender,
                                    Box::new(NullCache),
                                    TargetState::Client,
                                    crust_service,
                                    full_id,
                                    min_section_size,
-                                   timer)
+                                   timer,
+                                   routing_config)
                         .map_or(State::Terminated, State::Bootstrapping)
             },
                               pub_id,
                               Some(config),
+                              RoutingConfig::default(),
                               &mut outbox)
                     .1
         });

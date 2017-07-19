@@ -21,6 +21,7 @@ use {CrustEvent, CrustEventSender, Service};
 use ack_manager::{Ack, AckManager};
 use action::Action;
 use cache::Cache;
+use config_handler::Config;
 use error::{InterfaceError, RoutingError};
 use event::Event;
 use id::{FullId, PublicId};
@@ -59,6 +60,7 @@ pub struct JoiningNode {
     stats: Stats,
     relocation_timer_token: u64,
     timer: Timer,
+    routing_config: Config,
 }
 
 impl JoiningNode {
@@ -70,7 +72,8 @@ impl JoiningNode {
                               min_section_size: usize,
                               proxy_pub_id: PublicId,
                               stats: Stats,
-                              timer: Timer)
+                              timer: Timer,
+                              routing_config: Config)
                               -> Option<Self> {
         let duration = Duration::from_secs(RELOCATE_TIMEOUT_SECS);
         let relocation_timer_token = timer.schedule(duration);
@@ -86,6 +89,7 @@ impl JoiningNode {
             stats: stats,
             relocation_timer_token: relocation_timer_token,
             timer: timer,
+            routing_config: routing_config,
         };
         if let Err(error) = joining_node.relocate() {
             error!("{:?} Failed to start relocation: {:?}", joining_node, error);
@@ -157,7 +161,8 @@ impl JoiningNode {
                                service,
                                new_full_id,
                                self.min_section_size,
-                               self.timer) {
+                               self.timer,
+                               self.routing_config) {
             State::Bootstrapping(bootstrapping)
         } else {
             outbox.send_event(Event::RestartRequired);

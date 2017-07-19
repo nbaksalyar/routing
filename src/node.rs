@@ -18,6 +18,7 @@
 use action::Action;
 use cache::{Cache, NullCache};
 use client_error::ClientError;
+use config_handler::{self, Config};
 use data::{EntryAction, ImmutableData, MutableData, PermissionSet, User, Value};
 use error::{InterfaceError, RoutingError};
 use event::Event;
@@ -91,23 +92,27 @@ pub struct NodeBuilder {
     cache: Box<Cache>,
     first: bool,
     deny_other_local_nodes: bool,
+    config: Option<Config>,
 }
 
 impl NodeBuilder {
     /// Configures the node to use the given request cache.
     pub fn cache(self, cache: Box<Cache>) -> NodeBuilder {
+        NodeBuilder { cache, ..self }
+    }
+
+    /// Configures the node to use the given routing configuration.
+    /// Otherwise it will read the default configuration from file.
+    pub fn config(self, config: Config) -> NodeBuilder {
         NodeBuilder {
-            cache: cache,
+            config: Some(config),
             ..self
         }
     }
 
     /// Configures the node to start a new network instead of joining an existing one.
     pub fn first(self, first: bool) -> NodeBuilder {
-        NodeBuilder {
-            first: first,
-            ..self
-        }
+        NodeBuilder { first, ..self }
     }
 
     /// Causes node creation to fail if another node on the local network is detected.
@@ -132,8 +137,15 @@ impl NodeBuilder {
 
         let mut ev_buffer = EventBuf::new();
 
+        let routing_config = if let Some(ref config) = self.config {
+            config.clone()
+        } else {
+            // Read the default config file
+            config_handler::read_config_file()?
+        };
+
         // start the handler for routing without a restriction to become a full node
-        let (_, machine) = self.make_state_machine(&mut ev_buffer);
+        let (_, machine) = self.make_state_machine(&mut ev_buffer, routing_config.clone());
         let (tx, rx) = channel();
 
         Ok(Node {
@@ -144,39 +156,46 @@ impl NodeBuilder {
            })
     }
 
-    fn make_state_machine(self, outbox: &mut EventBox) -> (RoutingActionSender, StateMachine) {
+    fn make_state_machine(self,
+                          outbox: &mut EventBox,
+                          routing_config: Config)
+                          -> (RoutingActionSender, StateMachine) {
         let full_id = FullId::new();
         let pub_id = *full_id.public_id();
         let min_section_size = utils::min_section_size();
 
-        StateMachine::new(move |action_sender, crust_service, timer, outbox2| if self.first {
-                              if let Some(state) = states::Node::first(action_sender,
-                                                                       self.cache,
-                                                                       crust_service,
-                                                                       full_id,
-                                                                       min_section_size,
-                                                                       timer) {
-                                  State::Node(state)
-                              } else {
-                                  State::Terminated
-                              }
-                          } else if
-            self.deny_other_local_nodes && crust_service.has_peers_on_lan() {
-            error!("More than one routing node found on LAN. Currently this is not supported.");
-            outbox2.send_event(Event::Terminate);
-            State::Terminated
-        } else {
-            Bootstrapping::new(action_sender,
-                               self.cache,
-                               BootstrappingTargetState::JoiningNode,
-                               crust_service,
-                               full_id,
-                               min_section_size,
-                               timer)
-                    .map_or(State::Terminated, State::Bootstrapping)
+        StateMachine::new(move |action_sender, crust_service, timer, outbox2, routing_config| {
+            if self.first {
+                if let Some(state) = states::Node::first(action_sender,
+                                                         self.cache,
+                                                         crust_service,
+                                                         full_id,
+                                                         min_section_size,
+                                                         timer,
+                                                         routing_config) {
+                    State::Node(state)
+                } else {
+                    State::Terminated
+                }
+            } else if self.deny_other_local_nodes && crust_service.has_peers_on_lan() {
+                error!("More than one routing node found on LAN. Currently this is not supported.");
+                outbox2.send_event(Event::Terminate);
+                State::Terminated
+            } else {
+                Bootstrapping::new(action_sender,
+                                   self.cache,
+                                   BootstrappingTargetState::JoiningNode,
+                                   crust_service,
+                                   full_id,
+                                   min_section_size,
+                                   timer,
+                                   routing_config)
+                        .map_or(State::Terminated, State::Bootstrapping)
+            }
         },
                           pub_id,
                           None,
+                          routing_config,
                           outbox)
     }
 }
@@ -202,6 +221,7 @@ impl Node {
             cache: Box::new(NullCache),
             first: false,
             deny_other_local_nodes: false,
+            config: None,
         }
     }
 
