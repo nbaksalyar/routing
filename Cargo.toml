@@ -33,6 +33,8 @@ rand_crypto = { package = "rand", version = "~0.6.5" }
 resource_proof = "~0.8.0"
 serde = "~1.0.25"
 serde_derive = "~1.0.25"
+serde_json = { version = "~1.0.8", optional = true }
+structopt = { version = "~0.2.15", optional = true }
 term = "~0.4.6"
 tiny-keccak = "~1.5.0"
 ed25519_dalek = { package = "tmp-ed25519", version = "1.0.0-pre.2", features = ["serde"] }
@@ -45,7 +47,7 @@ libc = "~0.2.29"
 serde_json = "~1.0.8"
 
 [features]
-mock_base = ["lru_time_cache/fake_clock", "parsec/mock", "parsec/malice-detection"]
+mock_base = ["lru_time_cache/fake_clock", "parsec/mock", "parsec/malice-detection", "structopt", "serde_json"]
 mock_crypto = ["mock_base"]
 mock_parsec = ["mock_base"]
 mock_serialise = ["mock_base"]
