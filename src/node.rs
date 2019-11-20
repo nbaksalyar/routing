@@ -203,6 +203,15 @@ impl Node {
         self.machine.current().our_elders()
     }
 
+    /// Returns the connection information of elders in a section that is
+    /// closest to the provided `name`.
+    pub fn close_section_elders_info(
+        &self,
+        name: XorName,
+    ) -> Option<impl Iterator<Item = P2pNode>> {
+        self.machine.current().close_elders(name)
+    }
+
     /// Returns the `PublicId` of this node.
     pub fn id(&self) -> Result<PublicId, RoutingError> {
         self.machine.current().id().ok_or(RoutingError::Terminated)

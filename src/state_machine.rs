@@ -141,6 +141,16 @@ impl State {
         }
     }
 
+    pub fn close_elders(&self, name: XorName) -> Option<impl Iterator<Item = P2pNode>> {
+        match *self {
+            State::Elder(ref state) => Some(state.close_elders(&name)),
+            State::BootstrappingPeer(_)
+            | State::JoiningPeer(_)
+            | State::Adult(_)
+            | State::Terminated => None,
+        }
+    }
+
     pub fn our_connection_info(&mut self) -> Result<ConnectionInfo, RoutingError> {
         state_dispatch!(
             self,

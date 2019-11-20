@@ -727,6 +727,15 @@ impl Elder {
         Ok(())
     }
 
+    pub fn close_elders(&self, name: &XorName) -> impl Iterator<Item = P2pNode> {
+        let closest_section = self.chain.closest_section(name).0;
+        self.chain
+            .get_section_elders(&closest_section)
+            .into_iter()
+            .flat_map(move |p2p_nodes| p2p_nodes.values())
+            .cloned()
+    }
+
     fn respond_to_bootstrap_request(&mut self, p2p_node: &P2pNode, name: &XorName) {
         let response = if self.our_prefix().matches(name) {
             debug!("{} - Sending BootstrapResponse::Join to {}", self, p2p_node);
@@ -735,12 +744,9 @@ impl Elder {
                 p2p_nodes: self.chain.our_elders().cloned().collect(),
             }
         } else {
-            let closest_section = self.chain.closest_section(name).0;
             let conn_infos: Vec<_> = self
-                .chain
-                .get_section_elders(&closest_section)
-                .iter()
-                .flat_map(|p2p_nodes| p2p_nodes.values().map(P2pNode::connection_info).cloned())
+                .close_elders(name)
+                .map(|p2p_node| p2p_node.connection_info().clone())
                 .collect();
             debug!(
                 "{} - Sending BootstrapResponse::Rebootstrap to {}",
