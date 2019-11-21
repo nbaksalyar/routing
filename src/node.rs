@@ -200,7 +200,7 @@ impl Node {
 
     /// Returns the connection information of all the current section elders.
     pub fn our_elders_info(&self) -> Option<impl Iterator<Item = &P2pNode>> {
-        self.machine.current().our_elders()
+        self.machine.current().our_elders().map(|v| v.into_iter())
     }
 
     /// Returns the connection information of elders in a section that is
@@ -209,7 +209,10 @@ impl Node {
         &self,
         name: XorName,
     ) -> Option<impl Iterator<Item = P2pNode>> {
-        self.machine.current().close_elders(name)
+        self.machine
+            .current()
+            .close_elders(&name)
+            .map(|v| v.into_iter())
     }
 
     /// Returns the `PublicId` of this node.

@@ -270,6 +270,19 @@ impl Adult {
         self.send_event(Event::NodeLost(*pub_id.name()), outbox);
         Ok(())
     }
+
+    pub fn our_elders(&self) -> impl Iterator<Item = &P2pNode> {
+        self.chain.our_elders()
+    }
+
+    pub fn close_elders(&self, name: &XorName) -> impl Iterator<Item = P2pNode> {
+        let closest_section = self.chain.closest_section(name).0;
+        self.chain
+            .get_section_elders(&closest_section)
+            .cloned()
+            .into_iter()
+            .flat_map(move |p2p_nodes| p2p_nodes.into_iter().map(|(_, v)| v))
+    }
 }
 
 #[cfg(feature = "mock_base")]

@@ -131,23 +131,19 @@ impl State {
         )
     }
 
-    pub fn our_elders(&self) -> Option<impl Iterator<Item = &P2pNode>> {
+    pub fn our_elders(&self) -> Option<Vec<&P2pNode>> {
         match *self {
-            State::Elder(ref state) => Some(state.our_elders()),
-            State::BootstrappingPeer(_)
-            | State::JoiningPeer(_)
-            | State::Adult(_)
-            | State::Terminated => None,
+            State::Elder(ref state) => Some(state.our_elders().collect()),
+            State::Adult(ref state) => Some(state.our_elders().collect()),
+            State::BootstrappingPeer(_) | State::JoiningPeer(_) | State::Terminated => None,
         }
     }
 
-    pub fn close_elders(&self, name: XorName) -> Option<impl Iterator<Item = P2pNode>> {
+    pub fn close_elders(&self, name: &XorName) -> Option<Vec<P2pNode>> {
         match *self {
-            State::Elder(ref state) => Some(state.close_elders(&name)),
-            State::BootstrappingPeer(_)
-            | State::JoiningPeer(_)
-            | State::Adult(_)
-            | State::Terminated => None,
+            State::Elder(ref state) => Some(state.close_elders(name).collect()),
+            State::Adult(ref state) => Some(state.close_elders(name).collect()),
+            State::BootstrappingPeer(_) | State::JoiningPeer(_) | State::Terminated => None,
         }
     }
 
